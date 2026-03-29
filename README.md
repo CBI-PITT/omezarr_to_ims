@@ -120,6 +120,17 @@ PY
 fusermount3 -u /tmp/virtual-hdf5-mount
 ```
 
+Or rebuild everything and mount directly from an OME-Zarr store in one step:
+
+```bash
+mkdir -p /tmp/virtual-hdf5-mount
+./run_from_zarr_mount.sh \
+  /tmp/virtual-hdf5-mount \
+  "/mnt/c/code/test_data/Mag16_Tile0_Ch488_Flt525_50_(GFP)_Sh1_Rot0.0.ome.zarr"
+```
+
+This helper always rebuilds the shell HDF5 file, affine manifest, and Zarr mapping in `/tmp` before mounting.
+
 ## Run the test mount
 
 Create a mountpoint:
