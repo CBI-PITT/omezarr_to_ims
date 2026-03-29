@@ -11,7 +11,7 @@ requires-python = ">=3.12"
 dependencies = [
   "h5py",
   "numpy",
-  "ome-zarr-multiscale-writer",
+  "ome-zarr-multiscale-writer@git+https://github.com/CBI-PITT/ome_zarr_multiscale_writer.git",
   "pyfuse3",
   "trio",
 ]
