@@ -37,6 +37,23 @@ Extract the chunk coordinate to file offset mapping:
 
 This writes a sidecar JSON file next to the HDF5 shell with the chunk offsets reported by HDF5.
 
+Extract a compact affine manifest instead of a full chunk map:
+
+```bash
+/root/miniconda3/envs/omezarr_to_ims/bin/python extract_affine_manifest.py /tmp/example_shell.h5
+```
+
+This writes per-dataset metadata describing the affine chunk-slot layout, including `base_offset`, `chunk_slot_size`, `shape`, `chunks`, and `TCZYX` axis order.
+
+Resolve a file byte offset to the corresponding voxel or chunk location:
+
+```bash
+/root/miniconda3/envs/omezarr_to_ims/bin/python affine_lookup.py /tmp/example_shell.h5.affine_manifest.json 2048
+/root/miniconda3/envs/omezarr_to_ims/bin/python affine_lookup.py /tmp/example_shell.h5.affine_manifest.json 2048 --chunk-only
+```
+
+The default lookup resolves all the way to the containing dataset voxel index in `TCZYX` order when the byte falls inside the logical chunk payload. Edge-chunk padding bytes are reported as padding.
+
 ## Run the test mount
 
 Create a mountpoint:

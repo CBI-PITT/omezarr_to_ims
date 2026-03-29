@@ -8,6 +8,7 @@ Repository guidance for coding agents working in `/mnt/c/code/omezarr_to_ims`.
 - The main runtime file is `mount_test_fs.py`.
 - The main launcher is `run_test_mount.sh`.
 - The HDF5 shell prototype lives in `build_hdf5_shell.py` and `extract_chunk_map.py`.
+- The affine shell helpers live in `extract_affine_manifest.py` and `affine_lookup.py`.
 - There is no package layout, no formal build system, and no automated test suite yet.
 
 ## Local Environment
@@ -32,6 +33,8 @@ Repository guidance for coding agents working in `/mnt/c/code/omezarr_to_ims`.
 - `run_test_mount.sh` - convenience wrapper that invokes the required Python interpreter.
 - `build_hdf5_shell.py` - creates a sparse chunked HDF5 shell with early chunk allocation.
 - `extract_chunk_map.py` - extracts chunk coordinate to file offset mappings from the shell.
+- `extract_affine_manifest.py` - emits compact affine dataset descriptors instead of a full chunk map.
+- `affine_lookup.py` - resolves file offsets to chunk and voxel locations in `TCZYX` order.
 - `README.md` - manual setup and usage notes.
 - `__pycache__/` - generated artifacts; do not rely on contents.
 - `.idea/` - editor metadata; avoid editing it unless specifically requested.
@@ -44,6 +47,7 @@ Repository guidance for coding agents working in `/mnt/c/code/omezarr_to_ims`.
 ```bash
 /root/miniconda3/envs/omezarr_to_ims/bin/python -m py_compile mount_test_fs.py
 /root/miniconda3/envs/omezarr_to_ims/bin/python -m py_compile build_hdf5_shell.py extract_chunk_map.py
+/root/miniconda3/envs/omezarr_to_ims/bin/python -m py_compile extract_affine_manifest.py affine_lookup.py
 ```
 
 ## Lint Commands
@@ -77,6 +81,7 @@ fusermount3 -u /tmp/test-mount
 ```bash
 /root/miniconda3/envs/omezarr_to_ims/bin/python build_hdf5_shell.py /tmp/example_shell.h5 --dataset /data --shape 100,200 --chunks 10,20 --dtype uint16
 /root/miniconda3/envs/omezarr_to_ims/bin/python extract_chunk_map.py /tmp/example_shell.h5 --dataset /data
+/root/miniconda3/envs/omezarr_to_ims/bin/python extract_affine_manifest.py /tmp/example_shell.h5
 ```
 
 ## Running A Single Test
@@ -104,6 +109,12 @@ cat /tmp/test-mount/test.ims
 
 ```bash
 /root/miniconda3/envs/omezarr_to_ims/bin/python build_hdf5_shell.py /tmp/example_shell.h5 --dataset /data --shape 100,200 --chunks 10,20 --dtype uint16
+```
+
+- Affine lookup single check:
+
+```bash
+/root/miniconda3/envs/omezarr_to_ims/bin/python affine_lookup.py /tmp/example_shell.h5.affine_manifest.json 2048
 ```
 
 - If a future test framework is introduced, replace this section with the exact single-test invocation.
