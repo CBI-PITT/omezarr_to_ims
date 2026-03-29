@@ -122,6 +122,7 @@ def build_manifest(input_path, dataset_paths):
     entries.sort(key=lambda item: item["file_offset_start"])
     return {
         "file": str(input_path),
+        "file_size": input_path.stat().st_size,
         "axis_order": AXIS_ORDER,
         "dataset_count": len(entries),
         "datasets": entries,

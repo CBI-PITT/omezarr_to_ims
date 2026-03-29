@@ -74,6 +74,10 @@ def offset_to_chunk_location(manifest, file_offset):
     chunk_grid_index = unravel_index(linear_chunk_index, dataset["grid_shape"])
     chunk_origin = tuple(index * chunk for index, chunk in zip(chunk_grid_index, dataset["chunks"]))
     actual_shape = chunk_actual_shape(dataset, chunk_grid_index)
+    slot_element_index = intra_chunk_byte_offset // dataset["itemsize"]
+    voxel_index_in_chunk = unravel_index(slot_element_index, dataset["chunks"])
+    voxel_index = tuple(origin + local for origin, local in zip(chunk_origin, voxel_index_in_chunk))
+    is_padding = any(index >= dim for index, dim in zip(voxel_index, dataset["shape"]))
     logical_chunk_bytes = product(actual_shape) * dataset["itemsize"]
 
     return {
@@ -90,10 +94,13 @@ def offset_to_chunk_location(manifest, file_offset):
         "chunk_linear_index": linear_chunk_index,
         "chunk_grid_index": chunk_grid_index,
         "chunk_origin": chunk_origin,
+        "chunk_shape": tuple(dataset["chunks"]),
         "chunk_actual_shape": actual_shape,
         "logical_chunk_bytes": logical_chunk_bytes,
         "intra_chunk_byte_offset": intra_chunk_byte_offset,
-        "is_padding_byte": intra_chunk_byte_offset >= logical_chunk_bytes,
+        "voxel_index_in_chunk": voxel_index_in_chunk,
+        "voxel_index": voxel_index,
+        "is_padding_byte": is_padding,
     }
 
 
@@ -107,18 +114,11 @@ def offset_to_voxel_location(manifest, file_offset):
     byte_offset = location["intra_chunk_byte_offset"]
 
     if location["is_padding_byte"]:
-        location["voxel_index"] = None
-        location["voxel_index_in_chunk"] = None
         location["byte_offset_within_element"] = None
         return location
 
     element_linear_index = byte_offset // itemsize
     byte_offset_within_element = byte_offset % itemsize
-    voxel_index_in_chunk = unravel_index(element_linear_index, location["chunk_actual_shape"])
-    voxel_index = tuple(origin + local for origin, local in zip(location["chunk_origin"], voxel_index_in_chunk))
-
-    location["voxel_index_in_chunk"] = voxel_index_in_chunk
-    location["voxel_index"] = voxel_index
     location["byte_offset_within_element"] = byte_offset_within_element
     return location
 

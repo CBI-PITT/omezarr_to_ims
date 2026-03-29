@@ -9,6 +9,8 @@ Repository guidance for coding agents working in `/mnt/c/code/omezarr_to_ims`.
 - The main launcher is `run_test_mount.sh`.
 - The HDF5 shell prototype lives in `build_hdf5_shell.py` and `extract_chunk_map.py`.
 - The affine shell helpers live in `extract_affine_manifest.py` and `affine_lookup.py`.
+- The pre-FUSE routing helpers live in `read_segments.py` and `build_zarr_mapping.py`.
+- The OME-Zarr bridge helpers live in `zarr_backend.py`, `materialize_read.py`, and `mount_virtual_hdf5.py`.
 - There is no package layout, no formal build system, and no automated test suite yet.
 
 ## Local Environment
@@ -18,6 +20,7 @@ Repository guidance for coding agents working in `/mnt/c/code/omezarr_to_ims`.
 - Expected OS is Linux with FUSE 3 available.
 - `pyfuse3` is the active FUSE binding.
 - `h5py` is used for the generic HDF5 shell prototype.
+- `ome_zarr_multiscale_writer` provides the OME-Zarr reader backend.
 - `fusermount3` is the expected unmount command.
 
 ## Existing Instruction Files
@@ -35,6 +38,12 @@ Repository guidance for coding agents working in `/mnt/c/code/omezarr_to_ims`.
 - `extract_chunk_map.py` - extracts chunk coordinate to file offset mappings from the shell.
 - `extract_affine_manifest.py` - emits compact affine dataset descriptors instead of a full chunk map.
 - `affine_lookup.py` - resolves file offsets to chunk and voxel locations in `TCZYX` order.
+- `build_zarr_mapping.py` - creates a one-store mapping from shell datasets to OME-Zarr arrays.
+- `read_segments.py` - splits file read ranges into metadata and chunk-backed data segments.
+- `zarr_backend.py` - reads OME-Zarr level metadata and loads whole chunks with `TCZYX` promotion.
+- `materialize_read.py` - materializes virtual HDF5 read bytes from shell metadata and OME-Zarr chunk data.
+- `mount_virtual_hdf5.py` - pyfuse3 mount that exposes a virtual HDF5 file backed by OME-Zarr.
+- `run_virtual_mount.sh` - convenience wrapper that mounts the virtual HDF5 file with the required interpreter.
 - `README.md` - manual setup and usage notes.
 - `__pycache__/` - generated artifacts; do not rely on contents.
 - `.idea/` - editor metadata; avoid editing it unless specifically requested.
@@ -48,6 +57,8 @@ Repository guidance for coding agents working in `/mnt/c/code/omezarr_to_ims`.
 /root/miniconda3/envs/omezarr_to_ims/bin/python -m py_compile mount_test_fs.py
 /root/miniconda3/envs/omezarr_to_ims/bin/python -m py_compile build_hdf5_shell.py extract_chunk_map.py
 /root/miniconda3/envs/omezarr_to_ims/bin/python -m py_compile extract_affine_manifest.py affine_lookup.py
+/root/miniconda3/envs/omezarr_to_ims/bin/python -m py_compile build_zarr_mapping.py read_segments.py
+/root/miniconda3/envs/omezarr_to_ims/bin/python -m py_compile zarr_backend.py materialize_read.py mount_virtual_hdf5.py
 ```
 
 ## Lint Commands
@@ -82,6 +93,16 @@ fusermount3 -u /tmp/test-mount
 /root/miniconda3/envs/omezarr_to_ims/bin/python build_hdf5_shell.py /tmp/example_shell.h5 --dataset /data --shape 100,200 --chunks 10,20 --dtype uint16
 /root/miniconda3/envs/omezarr_to_ims/bin/python extract_chunk_map.py /tmp/example_shell.h5 --dataset /data
 /root/miniconda3/envs/omezarr_to_ims/bin/python extract_affine_manifest.py /tmp/example_shell.h5
+/root/miniconda3/envs/omezarr_to_ims/bin/python read_segments.py /tmp/example_shell.h5.affine_manifest.json 2048 8192
+```
+
+- For OME-Zarr-backed virtual HDF5 work, a useful smoke test is:
+
+```bash
+/root/miniconda3/envs/omezarr_to_ims/bin/python build_hdf5_shell.py /tmp/from_zarr.h5 --from-zarr "/mnt/c/code/test_data/Mag16_Tile0_Ch488_Flt525_50_(GFP)_Sh1_Rot0.0.ome.zarr"
+/root/miniconda3/envs/omezarr_to_ims/bin/python extract_affine_manifest.py /tmp/from_zarr.h5
+/root/miniconda3/envs/omezarr_to_ims/bin/python build_zarr_mapping.py /tmp/from_zarr.h5.affine_manifest.json "/mnt/c/code/test_data/Mag16_Tile0_Ch488_Flt525_50_(GFP)_Sh1_Rot0.0.ome.zarr"
+/root/miniconda3/envs/omezarr_to_ims/bin/python materialize_read.py /tmp/from_zarr.h5 /tmp/from_zarr.h5.affine_manifest.json /tmp/from_zarr.h5.affine_manifest.json.zarr_map.json 2048 64 --hex
 ```
 
 ## Running A Single Test
@@ -111,10 +132,28 @@ cat /tmp/test-mount/test.ims
 /root/miniconda3/envs/omezarr_to_ims/bin/python build_hdf5_shell.py /tmp/example_shell.h5 --dataset /data --shape 100,200 --chunks 10,20 --dtype uint16
 ```
 
+- From-Zarr shell single check:
+
+```bash
+/root/miniconda3/envs/omezarr_to_ims/bin/python build_hdf5_shell.py /tmp/from_zarr.h5 --from-zarr "/mnt/c/code/test_data/Mag16_Tile0_Ch488_Flt525_50_(GFP)_Sh1_Rot0.0.ome.zarr"
+```
+
 - Affine lookup single check:
 
 ```bash
 /root/miniconda3/envs/omezarr_to_ims/bin/python affine_lookup.py /tmp/example_shell.h5.affine_manifest.json 2048
+```
+
+- Read segmentation single check:
+
+```bash
+/root/miniconda3/envs/omezarr_to_ims/bin/python read_segments.py /tmp/example_shell.h5.affine_manifest.json 2048 8192
+```
+
+- Materialized read single check:
+
+```bash
+/root/miniconda3/envs/omezarr_to_ims/bin/python materialize_read.py /tmp/from_zarr.h5 /tmp/from_zarr.h5.affine_manifest.json /tmp/from_zarr.h5.affine_manifest.json.zarr_map.json 2048 64 --hex
 ```
 
 - If a future test framework is introduced, replace this section with the exact single-test invocation.
