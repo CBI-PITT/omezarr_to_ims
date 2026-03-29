@@ -11,6 +11,9 @@ from h5py import h5d, h5p, h5s, h5t
 from zarr_backend import OmeZarrBackend
 
 
+IMS_FORMAT_VERSION = "5.5.0"
+
+
 def parse_shape(text):
     values = tuple(int(part.strip()) for part in text.split(",") if part.strip())
     if not values:
@@ -67,6 +70,10 @@ def parse_args():
         default="/level",
         help="Prefix for auto-generated shell dataset paths when using --from-zarr (default: /level)",
     )
+    parser.add_argument(
+        "--imaris-from-zarr",
+        help="Path to an OME-Zarr store to mirror into an Imaris-style HDF5 shell.",
+    )
     return parser.parse_args()
 
 
@@ -89,6 +96,9 @@ def parse_level_spec(text):
 
 
 def load_level_specs(args):
+    if args.imaris_from_zarr:
+        raise ValueError("load_level_specs should not be used with --imaris-from-zarr")
+
     if args.from_zarr:
         backend = OmeZarrBackend(args.from_zarr)
         return backend.level_specs(prefix=args.dataset_prefix)
@@ -146,11 +156,152 @@ def create_chunked_dataset(parent_group, dataset_name, shape, chunks, dtype):
     return h5py.Dataset(dataset_id)
 
 
+def set_string_attr(h5obj, name, value):
+    h5obj.attrs[name] = str(value)
+
+
+def compute_integer_histogram(data):
+    flat = np.asarray(data).reshape(-1)
+    if flat.size == 0:
+        return 0, 0, np.zeros(1, dtype=np.uint64)
+    minimum = int(flat.min())
+    maximum = int(flat.max())
+    counts = np.bincount((flat.astype(np.int64) - minimum), minlength=(maximum - minimum + 1))
+    return minimum, maximum, counts.astype(np.uint64)
+
+
+def build_imaris_shell(output_path, store_path, dtype=None):
+    backend = OmeZarrBackend(store_path)
+    if dtype is None:
+        dtype = backend.levels[0]["dtype"]
+    lowest_level = backend.levels[-1]["level"]
+    max_t = max(spec["promoted_shape"][0] for spec in backend.levels)
+    max_c = max(spec["promoted_shape"][1] for spec in backend.levels)
+
+    channel_histograms = {}
+    for t_index in range(max_t):
+        for c_index in range(max_c):
+            volume = backend.read_volume(lowest_level, t=t_index, c=c_index)
+            channel_histograms[(t_index, c_index)] = compute_integer_histogram(volume)
+
+    with h5py.File(output_path, "w", libver="latest") as h5file:
+        set_string_attr(h5file, "ImarisDataSet", "ImarisDataSet")
+        set_string_attr(h5file, "FormatVersion", IMS_FORMAT_VERSION)
+
+        dataset_group = h5file.require_group("DataSet")
+        dataset_info = h5file.require_group("DataSetInfo")
+
+        info_imaris_dataset = dataset_info.require_group("ImarisDataSet")
+        set_string_attr(info_imaris_dataset, "Creator", "Imaris")
+        set_string_attr(info_imaris_dataset, "NumberOfImages", 1)
+        set_string_attr(info_imaris_dataset, "Version", IMS_FORMAT_VERSION)
+
+        info_imaris = dataset_info.require_group("Imaris")
+        set_string_attr(info_imaris, "Filename", output_path.name)
+        set_string_attr(info_imaris, "ManufactorString", "Generic Imaris 3.x")
+        set_string_attr(info_imaris, "ManufactorType", "LSM")
+        set_string_attr(info_imaris, "ThumbnailMode", "thumbnailNone")
+        set_string_attr(info_imaris, "Version", IMS_FORMAT_VERSION)
+
+        level0_shape = backend.levels[0]["promoted_shape"]
+        image_group = dataset_info.require_group("Image")
+        set_string_attr(image_group, "Description", "Virtual Imaris dataset backed by OME-Zarr")
+        set_string_attr(image_group, "Name", output_path.name)
+        set_string_attr(image_group, "Unit", "um")
+        set_string_attr(image_group, "X", level0_shape[4])
+        set_string_attr(image_group, "Y", level0_shape[3])
+        set_string_attr(image_group, "Z", level0_shape[2])
+        set_string_attr(image_group, "Noc", max_c)
+        set_string_attr(image_group, "ExtMin0", 0.0)
+        set_string_attr(image_group, "ExtMin1", 0.0)
+        set_string_attr(image_group, "ExtMin2", 0.0)
+        set_string_attr(image_group, "ExtMax0", float(level0_shape[4]))
+        set_string_attr(image_group, "ExtMax1", float(level0_shape[3]))
+        set_string_attr(image_group, "ExtMax2", float(level0_shape[2]))
+
+        time_info = dataset_info.require_group("TimeInfo")
+        set_string_attr(time_info, "DataSetTimePoints", max_t)
+        set_string_attr(time_info, "FileTimePoints", max_t)
+        for t_index in range(max_t):
+            set_string_attr(time_info, f"TimePoint{t_index + 1}", f"1970-01-01 00:00:{t_index:02d}.000")
+
+        colors = [(1, 0, 0), (0, 1, 0), (0, 0, 1), (1, 1, 0), (1, 0, 1), (0, 1, 1)]
+        for c_index in range(max_c):
+            channel_group = dataset_info.require_group(f"Channel {c_index}")
+            hist_min, hist_max, _ = channel_histograms[(0, c_index)]
+            color = colors[c_index % len(colors)]
+            set_string_attr(channel_group, "Name", f"Channel {c_index}")
+            set_string_attr(channel_group, "Description", f"Channel {c_index}")
+            set_string_attr(channel_group, "ColorMode", "BaseColor")
+            set_string_attr(channel_group, "Color", f"{color[0]} {color[1]} {color[2]}")
+            set_string_attr(channel_group, "ColorOpacity", 1.0)
+            set_string_attr(channel_group, "ColorRange", f"{hist_min} {hist_max}")
+            set_string_attr(channel_group, "Min", hist_min)
+            set_string_attr(channel_group, "Max", hist_max)
+
+        dataset_summaries = []
+        for level_spec in backend.levels:
+            level = level_spec["level"]
+            zyx_shape = level_spec["promoted_shape"][2:]
+            zyx_chunks = level_spec["promoted_chunks"][2:]
+            level_group = dataset_group.require_group(f"ResolutionLevel {level}")
+            for t_index in range(level_spec["promoted_shape"][0]):
+                time_group = level_group.require_group(f"TimePoint {t_index}")
+                for c_index in range(level_spec["promoted_shape"][1]):
+                    channel_group = time_group.require_group(f"Channel {c_index}")
+                    hist_min, hist_max, histogram = channel_histograms[(t_index, c_index)]
+                    set_string_attr(channel_group, "ImageSizeX", zyx_shape[2])
+                    set_string_attr(channel_group, "ImageSizeY", zyx_shape[1])
+                    set_string_attr(channel_group, "ImageSizeZ", zyx_shape[0])
+                    set_string_attr(channel_group, "HistogramMin", hist_min)
+                    set_string_attr(channel_group, "HistogramMax", hist_max)
+
+                    data_dataset = create_chunked_dataset(channel_group, "Data", zyx_shape, zyx_chunks, dtype)
+                    data_dataset.attrs["virtual_shell"] = True
+                    data_dataset.attrs["axis_order"] = "ZYX"
+                    data_dataset.attrs["source_layout"] = "imaris"
+                    data_dataset.attrs["source_level"] = level
+                    data_dataset.attrs["source_t"] = t_index
+                    data_dataset.attrs["source_c"] = c_index
+
+                    channel_group.create_dataset("Histogram", data=histogram, dtype=np.uint64)
+                    dataset_summaries.append(
+                        {
+                            "path": data_dataset.name,
+                            "shape": zyx_shape,
+                            "chunks": zyx_chunks,
+                            "dtype": np.dtype(dtype).str,
+                            "chunk_bytes": int(np.prod(zyx_chunks, dtype=np.int64)) * dtype.itemsize,
+                            "storage_size": int(data_dataset.id.get_storage_size()),
+                        }
+                    )
+
+        h5file.flush()
+
+    return dataset_summaries
+
+
 def main():
     args = parse_args()
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     dtype = np.dtype(args.dtype)
+
+    if args.imaris_from_zarr:
+        dataset_summaries = build_imaris_shell(output_path, args.imaris_from_zarr, None)
+        print(f"Created Imaris-style HDF5 shell: {output_path}")
+        print(f"Dtype: {dataset_summaries[0]['dtype'] if dataset_summaries else dtype.str}")
+        print(f"Dataset count: {len(dataset_summaries)}")
+        for summary in dataset_summaries[:8]:
+            print(f"Dataset path: {summary['path']}")
+            print(f"  Shape: {summary['shape']}")
+            print(f"  Chunks: {summary['chunks']}")
+            print(f"  Chunk byte size: {summary['chunk_bytes']}")
+            print(f"  Allocated storage size: {summary['storage_size']}")
+        if len(dataset_summaries) > 8:
+            print(f"... {len(dataset_summaries) - 8} more datasets omitted")
+        return
+
     level_specs = load_level_specs(args)
 
     with h5py.File(output_path, "w", libver="latest") as h5file:

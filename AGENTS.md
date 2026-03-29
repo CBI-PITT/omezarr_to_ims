@@ -7,7 +7,7 @@ Repository guidance for coding agents working in `/mnt/c/code/omezarr_to_ims`.
 - This repository is currently a small Python-based FUSE test harness.
 - The main runtime file is `mount_test_fs.py`.
 - The main launcher is `run_test_mount.sh`.
-- The HDF5 shell prototype lives in `build_hdf5_shell.py` and `extract_chunk_map.py`.
+- The HDF5 shell prototype and Imaris-style shell builder live in `build_hdf5_shell.py` and `extract_chunk_map.py`.
 - The affine shell helpers live in `extract_affine_manifest.py` and `affine_lookup.py`.
 - The pre-FUSE routing helpers live in `read_segments.py` and `build_zarr_mapping.py`.
 - The OME-Zarr bridge helpers live in `zarr_backend.py`, `materialize_read.py`, and `mount_virtual_hdf5.py`.
@@ -44,6 +44,7 @@ Repository guidance for coding agents working in `/mnt/c/code/omezarr_to_ims`.
 - `materialize_read.py` - materializes virtual HDF5 read bytes from shell metadata and OME-Zarr chunk data.
 - `mount_virtual_hdf5.py` - pyfuse3 mount that exposes a virtual HDF5 file backed by OME-Zarr.
 - `run_virtual_mount.sh` - convenience wrapper that mounts the virtual HDF5 file with the required interpreter.
+- `run_from_zarr_mount.sh` - convenience wrapper that rebuilds an Imaris-style `.ims` shell from OME-Zarr and mounts it.
 - `README.md` - manual setup and usage notes.
 - `__pycache__/` - generated artifacts; do not rely on contents.
 - `.idea/` - editor metadata; avoid editing it unless specifically requested.
@@ -105,6 +106,15 @@ fusermount3 -u /tmp/test-mount
 /root/miniconda3/envs/omezarr_to_ims/bin/python materialize_read.py /tmp/from_zarr.h5 /tmp/from_zarr.h5.affine_manifest.json /tmp/from_zarr.h5.affine_manifest.json.zarr_map.json 2048 64 --hex
 ```
 
+- For Imaris-style shell work, a useful smoke test is:
+
+```bash
+/root/miniconda3/envs/omezarr_to_ims/bin/python build_hdf5_shell.py /tmp/from_zarr.ims --imaris-from-zarr "/mnt/c/code/test_data/Mag16_Tile0_Ch488_Flt525_50_(GFP)_Sh1_Rot0.0.ome.zarr"
+/root/miniconda3/envs/omezarr_to_ims/bin/python extract_affine_manifest.py /tmp/from_zarr.ims
+/root/miniconda3/envs/omezarr_to_ims/bin/python build_zarr_mapping.py /tmp/from_zarr.ims.affine_manifest.json "/mnt/c/code/test_data/Mag16_Tile0_Ch488_Flt525_50_(GFP)_Sh1_Rot0.0.ome.zarr"
+/root/miniconda3/envs/omezarr_to_ims/bin/python materialize_read.py /tmp/from_zarr.ims /tmp/from_zarr.ims.affine_manifest.json /tmp/from_zarr.ims.affine_manifest.json.zarr_map.json 11826310624 64 --hex
+```
+
 ## Running A Single Test
 
 - Since no test framework exists, a “single test” means running one targeted smoke-check command.
@@ -136,6 +146,12 @@ cat /tmp/test-mount/test.ims
 
 ```bash
 /root/miniconda3/envs/omezarr_to_ims/bin/python build_hdf5_shell.py /tmp/from_zarr.h5 --from-zarr "/mnt/c/code/test_data/Mag16_Tile0_Ch488_Flt525_50_(GFP)_Sh1_Rot0.0.ome.zarr"
+```
+
+- Imaris-style shell single check:
+
+```bash
+/root/miniconda3/envs/omezarr_to_ims/bin/python build_hdf5_shell.py /tmp/from_zarr.ims --imaris-from-zarr "/mnt/c/code/test_data/Mag16_Tile0_Ch488_Flt525_50_(GFP)_Sh1_Rot0.0.ome.zarr"
 ```
 
 - Affine lookup single check:

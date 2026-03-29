@@ -97,9 +97,9 @@ def dataset_manifest_entry(dataset_path, dataset):
         if int(info.byte_offset) != expected_offset or int(info.size) != chunk_slot_size:
             affine_ok = False
 
-    return {
+    entry = {
         "path": dataset_path,
-        "axis_order": AXIS_ORDER,
+        "axis_order": dataset.attrs.get("axis_order", AXIS_ORDER),
         "shape": list(shape),
         "chunks": list(chunks),
         "grid_shape": list(grid_shape),
@@ -113,6 +113,13 @@ def dataset_manifest_entry(dataset_path, dataset):
         "affine_verified_on_samples": affine_ok,
         "verification_samples": samples,
     }
+    for attr_name in ("source_layout", "source_level", "source_t", "source_c"):
+        if attr_name in dataset.attrs:
+            value = dataset.attrs[attr_name]
+            if hasattr(value, "item"):
+                value = value.item()
+            entry[attr_name] = value
+    return entry
 
 
 def build_manifest(input_path, dataset_paths):

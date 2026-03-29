@@ -4,7 +4,7 @@ Basic FUSE test mount for exposing a fake `test.ims` file and printing filesyste
 
 This repo should use the Python environment at `/root/miniconda3/envs/omezarr_to_ims`.
 
-The repo also now includes a generic HDF5 shell prototype for building a sparse chunked file and extracting chunk offsets for later virtualization work.
+The repo includes both a generic HDF5 shell prototype and an Imaris-style `.ims` shell backed by OME-Zarr.
 
 ## Requirements
 
@@ -47,6 +47,19 @@ Or build the shell directly from an OME-Zarr multiscale store. Lower-dimensional
   --from-zarr "/mnt/c/code/test_data/Mag16_Tile0_Ch488_Flt525_50_(GFP)_Sh1_Rot0.0.ome.zarr"
 ```
 
+Build an Imaris-style shell from the same OME-Zarr store:
+
+```bash
+/root/miniconda3/envs/omezarr_to_ims/bin/python build_hdf5_shell.py /tmp/from_zarr.ims \
+  --imaris-from-zarr "/mnt/c/code/test_data/Mag16_Tile0_Ch488_Flt525_50_(GFP)_Sh1_Rot0.0.ome.zarr"
+```
+
+This creates an HDF5-based `.ims` file with an Imaris-style hierarchy:
+
+- `/DataSet/ResolutionLevel N/TimePoint T/Channel C/Data`
+- `/DataSet/ResolutionLevel N/TimePoint T/Channel C/Histogram`
+- `/DataSetInfo/...`
+
 Extract the chunk coordinate to file offset mapping:
 
 ```bash
@@ -79,6 +92,8 @@ Build an explicit one-store OME-Zarr mapping manifest:
 ```
 
 By default, datasets are mapped in order to Zarr arrays `0`, `1`, `2`, and so on. You can override individual paths with `--map`, for example `--map /level0/data=0`.
+
+For Imaris-style shells, the generated mapping records the source resolution level, timepoint, and channel for each `.../Data` dataset automatically.
 
 Resolve a file read into metadata, data, and padding segments:
 
@@ -120,6 +135,22 @@ PY
 fusermount3 -u /tmp/virtual-hdf5-mount
 ```
 
+Mount an Imaris-style virtual file backed by OME-Zarr:
+
+```bash
+mkdir -p /tmp/virtual-ims-mount
+/root/miniconda3/envs/omezarr_to_ims/bin/python build_hdf5_shell.py /tmp/from_zarr.ims \
+  --imaris-from-zarr "/mnt/c/code/test_data/Mag16_Tile0_Ch488_Flt525_50_(GFP)_Sh1_Rot0.0.ome.zarr"
+/root/miniconda3/envs/omezarr_to_ims/bin/python extract_affine_manifest.py /tmp/from_zarr.ims
+/root/miniconda3/envs/omezarr_to_ims/bin/python build_zarr_mapping.py /tmp/from_zarr.ims.affine_manifest.json \
+  "/mnt/c/code/test_data/Mag16_Tile0_Ch488_Flt525_50_(GFP)_Sh1_Rot0.0.ome.zarr"
+./run_virtual_mount.sh \
+  /tmp/virtual-ims-mount \
+  /tmp/from_zarr.ims \
+  /tmp/from_zarr.ims.affine_manifest.json \
+  /tmp/from_zarr.ims.affine_manifest.json.zarr_map.json
+```
+
 Or rebuild everything and mount directly from an OME-Zarr store in one step:
 
 ```bash
@@ -129,7 +160,7 @@ mkdir -p /tmp/virtual-hdf5-mount
   "/mnt/c/code/test_data/Mag16_Tile0_Ch488_Flt525_50_(GFP)_Sh1_Rot0.0.ome.zarr"
 ```
 
-This helper always rebuilds the shell HDF5 file, affine manifest, and Zarr mapping in `/tmp` before mounting.
+This helper now rebuilds an Imaris-style `.ims` shell, affine manifest, and Zarr mapping in `/tmp` before mounting.
 
 ## Run the test mount
 

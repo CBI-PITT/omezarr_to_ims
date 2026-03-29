@@ -41,8 +41,17 @@ def parse_explicit_mappings(values):
 def build_mapping(affine_manifest, store, explicit):
     dataset_paths = [dataset["path"] for dataset in affine_manifest["datasets"]]
     dataset_map = {}
+    dataset_entries = {dataset["path"]: dataset for dataset in affine_manifest["datasets"]}
     for index, dataset_path in enumerate(dataset_paths):
-        dataset_map[dataset_path] = explicit.get(dataset_path, str(index))
+        if dataset_path in explicit:
+            dataset_map[dataset_path] = explicit[dataset_path]
+            continue
+        dataset = dataset_entries[dataset_path]
+        dataset_map[dataset_path] = {
+            "level": int(dataset.get("source_level", index)),
+            "t": int(dataset.get("source_t", 0)),
+            "c": int(dataset.get("source_c", 0)),
+        }
 
     unknown = sorted(set(explicit) - set(dataset_paths))
     if unknown:

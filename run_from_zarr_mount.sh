@@ -30,7 +30,7 @@ if [ "$BASE_NAME" = "$STORE_NAME" ]; then
 fi
 
 SAFE_NAME="$(printf '%s' "$BASE_NAME" | tr ' /' '__')"
-SHELL_PATH="/tmp/${SAFE_NAME}.h5"
+SHELL_PATH="/tmp/${SAFE_NAME}.ims"
 MANIFEST_PATH="${SHELL_PATH}.affine_manifest.json"
 ZARR_MAP_PATH="${MANIFEST_PATH}.zarr_map.json"
 
@@ -39,7 +39,7 @@ printf 'Shell file: %s\n' "$SHELL_PATH"
 printf 'Affine manifest: %s\n' "$MANIFEST_PATH"
 printf 'Zarr map: %s\n' "$ZARR_MAP_PATH"
 
-"$PYTHON_BIN" "$SCRIPT_DIR/build_hdf5_shell.py" "$SHELL_PATH" --from-zarr "$STORE_PATH"
+"$PYTHON_BIN" "$SCRIPT_DIR/build_hdf5_shell.py" "$SHELL_PATH" --imaris-from-zarr "$STORE_PATH"
 "$PYTHON_BIN" "$SCRIPT_DIR/extract_affine_manifest.py" "$SHELL_PATH"
 "$PYTHON_BIN" "$SCRIPT_DIR/build_zarr_mapping.py" "$MANIFEST_PATH" "$STORE_PATH"
 
