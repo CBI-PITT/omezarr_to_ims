@@ -7,6 +7,7 @@ Repository guidance for coding agents working in `/mnt/c/code/omezarr_to_ims`.
 - This repository is currently a small Python-based FUSE test harness.
 - The main runtime file is `mount_test_fs.py`.
 - The main launcher is `run_test_mount.sh`.
+- The HDF5 shell prototype lives in `build_hdf5_shell.py` and `extract_chunk_map.py`.
 - There is no package layout, no formal build system, and no automated test suite yet.
 
 ## Local Environment
@@ -15,6 +16,7 @@ Repository guidance for coding agents working in `/mnt/c/code/omezarr_to_ims`.
 - Prefer explicit interpreter paths over `python`, `pip`, or activated-shell assumptions.
 - Expected OS is Linux with FUSE 3 available.
 - `pyfuse3` is the active FUSE binding.
+- `h5py` is used for the generic HDF5 shell prototype.
 - `fusermount3` is the expected unmount command.
 
 ## Existing Instruction Files
@@ -28,6 +30,8 @@ Repository guidance for coding agents working in `/mnt/c/code/omezarr_to_ims`.
 
 - `mount_test_fs.py` - single-file pyfuse3 filesystem exposing a fake `test.ims` file.
 - `run_test_mount.sh` - convenience wrapper that invokes the required Python interpreter.
+- `build_hdf5_shell.py` - creates a sparse chunked HDF5 shell with early chunk allocation.
+- `extract_chunk_map.py` - extracts chunk coordinate to file offset mappings from the shell.
 - `README.md` - manual setup and usage notes.
 - `__pycache__/` - generated artifacts; do not rely on contents.
 - `.idea/` - editor metadata; avoid editing it unless specifically requested.
@@ -39,6 +43,7 @@ Repository guidance for coding agents working in `/mnt/c/code/omezarr_to_ims`.
 
 ```bash
 /root/miniconda3/envs/omezarr_to_ims/bin/python -m py_compile mount_test_fs.py
+/root/miniconda3/envs/omezarr_to_ims/bin/python -m py_compile build_hdf5_shell.py extract_chunk_map.py
 ```
 
 ## Lint Commands
@@ -67,6 +72,12 @@ fusermount3 -u /tmp/test-mount
 ```
 
 - Expect logs like `getattr`, `lookup`, `readdir`, `open`, and `read` during smoke tests.
+- For HDF5 shell work, a useful smoke test is:
+
+```bash
+/root/miniconda3/envs/omezarr_to_ims/bin/python build_hdf5_shell.py /tmp/example_shell.h5 --dataset /data --shape 100,200 --chunks 10,20 --dtype uint16
+/root/miniconda3/envs/omezarr_to_ims/bin/python extract_chunk_map.py /tmp/example_shell.h5 --dataset /data
+```
 
 ## Running A Single Test
 
@@ -87,6 +98,12 @@ cat /tmp/test-mount/test.ims
 
 ```bash
 /root/miniconda3/envs/omezarr_to_ims/bin/python -m py_compile mount_test_fs.py
+```
+
+- Shell builder single check:
+
+```bash
+/root/miniconda3/envs/omezarr_to_ims/bin/python build_hdf5_shell.py /tmp/example_shell.h5 --dataset /data --shape 100,200 --chunks 10,20 --dtype uint16
 ```
 
 - If a future test framework is introduced, replace this section with the exact single-test invocation.
