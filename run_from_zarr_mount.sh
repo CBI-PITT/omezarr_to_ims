@@ -39,8 +39,8 @@ printf 'Shell file: %s\n' "$SHELL_PATH"
 printf 'Affine manifest: %s\n' "$MANIFEST_PATH"
 printf 'Zarr map: %s\n' "$ZARR_MAP_PATH"
 
-"$PYTHON_BIN" "$SCRIPT_DIR/build_hdf5_shell.py" "$SHELL_PATH" --imaris-from-zarr "$STORE_PATH"
-"$PYTHON_BIN" "$SCRIPT_DIR/extract_affine_manifest.py" "$SHELL_PATH"
-"$PYTHON_BIN" "$SCRIPT_DIR/build_zarr_mapping.py" "$MANIFEST_PATH" "$STORE_PATH"
+"$PYTHON_BIN" -m build_hdf5_shell "$SHELL_PATH" --imaris-from-zarr "$STORE_PATH"
+"$PYTHON_BIN" -m extract_affine_manifest "$SHELL_PATH"
+"$PYTHON_BIN" -m build_zarr_mapping "$MANIFEST_PATH" "$STORE_PATH"
 
 exec "$SCRIPT_DIR/run_virtual_mount.sh" "$MOUNTPOINT" "$SHELL_PATH" "$MANIFEST_PATH" "$ZARR_MAP_PATH"

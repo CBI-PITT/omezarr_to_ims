@@ -46,10 +46,17 @@ Repository guidance for coding agents working in `/mnt/c/code/omezarr_to_ims`.
 - `run_virtual_mount.sh` - convenience wrapper that mounts the virtual HDF5 file with the required interpreter.
 - `run_from_zarr_mount.sh` - convenience wrapper that rebuilds an Imaris-style `.ims` shell from OME-Zarr and mounts it.
 - `README.md` - manual setup and usage notes.
+- `pyproject.toml` - editable-install metadata and console-script entry points.
 - `__pycache__/` - generated artifacts; do not rely on contents.
 - `.idea/` - editor metadata; avoid editing it unless specifically requested.
 
 ## Build Commands
+
+- Install the repo in editable mode with:
+
+```bash
+/root/miniconda3/envs/omezarr_to_ims/bin/pip install -e .
+```
 
 - There is no separate build step.
 - The closest build-equivalent check is Python bytecode compilation:

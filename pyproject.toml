@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omezarr-to-ims"
+version = "0.1.0"
+description = "FUSE and HDF5 shell helpers for OME-Zarr-backed IMS-style files"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "h5py",
+  "numpy",
+  "ome-zarr-multiscale-writer",
+  "pyfuse3",
+  "trio",
+]
+
+[project.scripts]
+affine-lookup = "affine_lookup:main"
+build-hdf5-shell = "build_hdf5_shell:main"
+build-zarr-mapping = "build_zarr_mapping:main"
+extract-affine-manifest = "extract_affine_manifest:main"
+extract-chunk-map = "extract_chunk_map:main"
+materialize-read = "materialize_read:main"
+mount-test-fs = "mount_test_fs:main"
+mount-virtual-hdf5 = "mount_virtual_hdf5:main"
+read-segments = "read_segments:main"
+
+[tool.setuptools]
+py-modules = [
+  "affine_lookup",
+  "build_hdf5_shell",
+  "build_zarr_mapping",
+  "extract_affine_manifest",
+  "extract_chunk_map",
+  "materialize_read",
+  "mount_test_fs",
+  "mount_virtual_hdf5",
+  "read_segments",
+  "zarr_backend",
+]

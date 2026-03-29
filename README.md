@@ -15,13 +15,20 @@ The repo includes both a generic HDF5 shell prototype and an Imaris-style `.ims`
 - `h5py`
 - `ome_zarr_multiscale_writer` installed in the same environment
 
-Install the Python dependency with:
+Install the runtime dependencies and this repo itself with:
 
 ```bash
 /root/miniconda3/envs/omezarr_to_ims/bin/pip install pyfuse3
 /root/miniconda3/envs/omezarr_to_ims/bin/pip install h5py
+/root/miniconda3/envs/omezarr_to_ims/bin/pip install numpy trio
 /root/miniconda3/envs/omezarr_to_ims/bin/pip install -e /mnt/c/code/ome_zarr_multiscale_writer
+/root/miniconda3/envs/omezarr_to_ims/bin/pip install -e /mnt/c/code/omezarr_to_ims
 ```
+
+The editable install exposes console scripts including `build-hdf5-shell`,
+`extract-affine-manifest`, `build-zarr-mapping`, `materialize-read`,
+`mount-test-fs`, and `mount-virtual-hdf5`. The examples below mostly use
+`python -m ...` so they also work directly against the installed modules.
 
 ## Build a generic HDF5 shell
 
