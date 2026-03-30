@@ -1,17 +1,46 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -euo pipefail
 
 PYTHON_BIN="/h20/home/lab/miniconda3/envs/omezarr_to_ims/bin/python"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [ "$#" -ne 2 ]; then
-    printf 'Usage: %s <mountpoint> <store.ome.zarr>\n' "$0"
+usage() {
+    printf 'Usage: %s [options] <mountpoint> <store.ome.zarr>\n' "$0"
+    printf '\nOptions:\n'
+    printf '  --imaris-chunks     Use fixed Imaris chunk sizes (32x128x128) instead of Zarr native\n'
+    printf '  --full-histograms   Compute histograms from every resolution level\n'
     exit 1
+}
+
+SHELL_EXTRA_ARGS=()
+POSITIONAL=()
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --imaris-chunks)
+            SHELL_EXTRA_ARGS+=("--imaris-chunks")
+            shift
+            ;;
+        --full-histograms)
+            SHELL_EXTRA_ARGS+=("--full-histograms")
+            shift
+            ;;
+        -h|--help)
+            usage
+            ;;
+        *)
+            POSITIONAL+=("$1")
+            shift
+            ;;
+    esac
+done
+
+if [ "${#POSITIONAL[@]}" -ne 2 ]; then
+    usage
 fi
 
-MOUNTPOINT="$1"
-STORE_PATH="$2"
+MOUNTPOINT="${POSITIONAL[0]}"
+STORE_PATH="${POSITIONAL[1]}"
 
 if [ ! -d "$MOUNTPOINT" ]; then
     printf 'Mountpoint does not exist or is not a directory: %s\n' "$MOUNTPOINT"
@@ -39,7 +68,7 @@ printf 'Shell file: %s\n' "$SHELL_PATH"
 printf 'Affine manifest: %s\n' "$MANIFEST_PATH"
 printf 'Zarr map: %s\n' "$ZARR_MAP_PATH"
 
-"$PYTHON_BIN" -m build_hdf5_shell "$SHELL_PATH" --imaris-from-zarr "$STORE_PATH"
+"$PYTHON_BIN" -m build_hdf5_shell "$SHELL_PATH" --imaris-from-zarr "$STORE_PATH" "${SHELL_EXTRA_ARGS[@]+"${SHELL_EXTRA_ARGS[@]}"}"
 "$PYTHON_BIN" -m extract_affine_manifest "$SHELL_PATH"
 "$PYTHON_BIN" -m build_zarr_mapping "$MANIFEST_PATH" "$STORE_PATH"
 

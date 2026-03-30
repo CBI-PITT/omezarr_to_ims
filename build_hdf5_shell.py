@@ -78,6 +78,19 @@ def parse_args():
         "--imaris-from-zarr",
         help="Path to an OME-Zarr store to mirror into an Imaris-style HDF5 shell.",
     )
+    parser.add_argument(
+        "--imaris-chunks",
+        action="store_true",
+        help="Use fixed Imaris-style chunk sizes (32x128x128) instead of the "
+             "OME-Zarr store's native chunk sizes. Only applies with --imaris-from-zarr.",
+    )
+    parser.add_argument(
+        "--full-histograms",
+        action="store_true",
+        help="Compute histograms from every resolution level. By default only "
+             "the lowest-resolution level is read and its histograms are reused "
+             "for all levels.",
+    )
     return parser.parse_args()
 
 
@@ -208,30 +221,48 @@ def pad_shape_to_chunks(shape, chunks):
     return tuple(((dim + chunk - 1) // chunk) * chunk for dim, chunk in zip(shape, chunks))
 
 
-def select_imaris_chunks(logical_shape, level, level_count):
+def select_imaris_chunks(logical_shape, level, level_count, native_zyx_chunks=None):
+    if native_zyx_chunks is not None:
+        return native_zyx_chunks
     z_chunk = IMARIS_COARSE_CHUNK_Z if level == level_count - 1 else IMARIS_CHUNK_Z
     return (z_chunk, IMARIS_CHUNK_YX, IMARIS_CHUNK_YX)
 
 
-def build_imaris_channel_histograms(backend, max_t, max_c):
+def build_imaris_channel_histograms(backend, max_t, max_c, full_histograms=False):
     histograms = {}
-    for level_spec in backend.levels:
-        level = level_spec["level"]
-        for t_index in range(max_t):
-            for c_index in range(max_c):
-                volume = backend.read_volume(level, t=t_index, c=c_index)
-                histograms[(level, t_index, c_index)] = compute_imaris_histograms(volume)
+    if full_histograms:
+        for level_spec in backend.levels:
+            level = level_spec["level"]
+            for t_index in range(max_t):
+                for c_index in range(max_c):
+                    volume = backend.read_volume(level, t=t_index, c=c_index)
+                    histograms[(level, t_index, c_index)] = compute_imaris_histograms(volume)
+        return histograms
+
+    # Default: compute histograms only from the lowest-resolution level
+    # (highest level index) and reuse them for all other levels.
+    coarsest = backend.levels[-1]
+    coarsest_level = coarsest["level"]
+    for t_index in range(max_t):
+        for c_index in range(max_c):
+            volume = backend.read_volume(coarsest_level, t=t_index, c=c_index)
+            result = compute_imaris_histograms(volume)
+            for level_spec in backend.levels:
+                histograms[(level_spec["level"], t_index, c_index)] = result
     return histograms
 
 
-def build_imaris_shell(output_path, store_path, dtype=None):
+def build_imaris_shell(output_path, store_path, dtype=None,
+                       use_imaris_chunks=False, full_histograms=False):
     backend = OmeZarrBackend(store_path)
     if dtype is None:
         dtype = backend.levels[0]["dtype"]
     dtype = np.dtype(dtype)
     max_t = max(spec["promoted_shape"][0] for spec in backend.levels)
     max_c = max(spec["promoted_shape"][1] for spec in backend.levels)
-    channel_histograms = build_imaris_channel_histograms(backend, max_t, max_c)
+    channel_histograms = build_imaris_channel_histograms(
+        backend, max_t, max_c, full_histograms=full_histograms,
+    )
 
     with h5py.File(output_path, "w", libver="latest") as h5file:
         set_imaris_string_attr(h5file, "DataSetDirectoryName", "DataSet")
@@ -331,7 +362,9 @@ def build_imaris_shell(output_path, store_path, dtype=None):
         for level_spec in backend.levels:
             level = level_spec["level"]
             logical_zyx_shape = level_spec["promoted_shape"][2:]
-            zyx_chunks = select_imaris_chunks(logical_zyx_shape, level, level_count)
+            native_zyx = None if use_imaris_chunks else level_spec["promoted_chunks"][2:]
+            zyx_chunks = select_imaris_chunks(logical_zyx_shape, level, level_count,
+                                              native_zyx_chunks=native_zyx)
             stored_zyx_shape = pad_shape_to_chunks(logical_zyx_shape, zyx_chunks)
             level_group = dataset_group.require_group(f"ResolutionLevel {level}")
             for t_index in range(level_spec["promoted_shape"][0]):
@@ -371,7 +404,13 @@ def main():
     dtype = np.dtype(args.dtype)
 
     if args.imaris_from_zarr:
-        dataset_summaries = build_imaris_shell(output_path, args.imaris_from_zarr, None)
+        dataset_summaries = build_imaris_shell(
+            output_path,
+            args.imaris_from_zarr,
+            dtype=None,
+            use_imaris_chunks=args.imaris_chunks,
+            full_histograms=args.full_histograms,
+        )
         print(f"Created Imaris-style HDF5 shell: {output_path}")
         print(f"Dtype: {dataset_summaries[0]['dtype'] if dataset_summaries else dtype.str}")
         print(f"Dataset count: {len(dataset_summaries)}")
