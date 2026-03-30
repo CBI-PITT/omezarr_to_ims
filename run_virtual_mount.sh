@@ -1,8 +1,8 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 set -euo pipefail
 
-PYTHON_BIN="/root/miniconda3/envs/omezarr_to_ims/bin/python"
+PYTHON_BIN="/h20/home/lab/miniconda3/envs/omezarr_to_ims/bin/python"
 
 if [ "$#" -ne 4 ]; then
     printf 'Usage: %s <mountpoint> <shell.h5> <affine_manifest.json> <zarr_map.json>\n' "$0"

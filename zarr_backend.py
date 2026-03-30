@@ -137,18 +137,23 @@ class OmeZarrBackend:
             raise ValueError(f"Expected 3D ZYX data after TC extraction, got shape {data.shape}")
         return data
 
-    def validate_shell_dataset(self, dataset_path, mapping_target, shell_shape, shell_chunks, shell_dtype):
+    def validate_shell_dataset(self, dataset_path, mapping_target, shell_shape,
+                               shell_chunks, shell_dtype, source_layout=None):
         entry = self.level_entry(mapping_target)
         expected_shape = entry["promoted_shape"][2:]
-        expected_chunks = entry["promoted_chunks"][2:]
         if tuple(shell_shape) != expected_shape:
             raise ValueError(
                 f"Shape mismatch for {dataset_path}: shell {tuple(shell_shape)} vs zarr {expected_shape}"
             )
-        if tuple(shell_chunks) != expected_chunks:
-            raise ValueError(
-                f"Chunk mismatch for {dataset_path}: shell {tuple(shell_chunks)} vs zarr {expected_chunks}"
-            )
+        # Imaris shells use their own fixed chunk sizes independent of the
+        # Zarr store's native chunking.  Only enforce chunk equality for
+        # generic (non-Imaris) shells.
+        if source_layout != "imaris":
+            expected_chunks = entry["promoted_chunks"][2:]
+            if tuple(shell_chunks) != expected_chunks:
+                raise ValueError(
+                    f"Chunk mismatch for {dataset_path}: shell {tuple(shell_chunks)} vs zarr {expected_chunks}"
+                )
         if np.dtype(shell_dtype) != entry["dtype"]:
             raise ValueError(
                 f"Dtype mismatch for {dataset_path}: shell {np.dtype(shell_dtype)} vs zarr {entry['dtype']}"

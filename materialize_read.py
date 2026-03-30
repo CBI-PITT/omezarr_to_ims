@@ -3,27 +3,54 @@
 import argparse
 import json
 import os
+from functools import lru_cache
 
 from affine_lookup import parse_manifest
 from read_segments import resolve_read_segments
 from zarr_backend import OmeZarrBackend, load_zarr_mapping
 
+# Maximum number of fully-materialized chunk byte strings to keep in the LRU
+# cache.  Each entry is one chunk worth of raw bytes (e.g. 32*128*128*2 = 1 MiB
+# for uint16 with the default Imaris chunk sizes).
+_CHUNK_CACHE_SIZE = 256
 
-def materialize_read(shell_file, manifest, zarr_mapping, backend, offset, length):
+
+def _make_chunk_fetcher(backend, zarr_mapping):
+    """Return a cached function that fetches and serializes a single chunk."""
+
+    @lru_cache(maxsize=_CHUNK_CACHE_SIZE)
+    def _fetch_chunk_bytes(dataset_path, chunk_origin, chunk_shape,
+                           chunk_actual_shape, dtype):
+        mapping_target = zarr_mapping["datasets"][dataset_path]
+        chunk = backend.read_chunk(
+            mapping_target,
+            list(chunk_origin),
+            list(chunk_shape),
+            list(chunk_actual_shape),
+        )
+        return chunk.astype(dtype, copy=False).tobytes(order="C")
+
+    return _fetch_chunk_bytes
+
+
+def materialize_read(shell_file, manifest, zarr_mapping, backend, offset, length,
+                     _chunk_cache=None):
+    if _chunk_cache is None:
+        _chunk_cache = _make_chunk_fetcher(backend, zarr_mapping)
+
     parts = []
     for segment in resolve_read_segments(manifest, offset, length):
         if segment["kind"] == "metadata":
             parts.append(os.pread(shell_file.fileno(), segment["length"], segment["file_offset"]))
             continue
 
-        mapping_target = zarr_mapping["datasets"][segment["dataset_path"]]
-        chunk = backend.read_chunk(
-            mapping_target,
-            segment["chunk_origin"],
-            segment["chunk_shape"],
-            segment["chunk_actual_shape"],
+        chunk_bytes = _chunk_cache(
+            segment["dataset_path"],
+            tuple(segment["chunk_origin"]),
+            tuple(segment["chunk_shape"]),
+            tuple(segment["chunk_actual_shape"]),
+            segment["dtype"],
         )
-        chunk_bytes = chunk.astype(segment["dtype"], copy=False).tobytes(order="C")
         start = segment["intra_chunk_byte_offset"]
         end = start + segment["length"]
         parts.append(chunk_bytes[start:end])

@@ -1,8 +1,8 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 set -euo pipefail
 
-PYTHON_BIN="/root/miniconda3/envs/omezarr_to_ims/bin/python"
+PYTHON_BIN="/h20/home/lab/miniconda3/envs/omezarr_to_ims/bin/python"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ "$#" -ne 2 ]; then

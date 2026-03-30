@@ -11,7 +11,7 @@ import pyfuse3
 import trio
 
 from affine_lookup import parse_manifest
-from materialize_read import materialize_read
+from materialize_read import materialize_read, _make_chunk_fetcher
 from zarr_backend import OmeZarrBackend, load_zarr_mapping
 
 
@@ -35,8 +35,10 @@ class VirtualHDF5Filesystem(pyfuse3.Operations):
                 dataset.get("logical_shape", dataset["shape"]),
                 dataset["chunks"],
                 dataset["dtype"],
+                source_layout=dataset.get("source_layout"),
             )
         self.now_ns = int(time.time() * 1_000_000_000)
+        self.chunk_cache = _make_chunk_fetcher(self.backend, self.zarr_mapping)
 
     def close(self):
         self.shell_file.close()
@@ -121,7 +123,8 @@ class VirtualHDF5Filesystem(pyfuse3.Operations):
         self._log("read", fh=fh, offset=off, size=size)
         if fh != self.file_inode:
             raise pyfuse3.FUSEError(errno.ENOENT)
-        return materialize_read(self.shell_file, self.manifest, self.zarr_mapping, self.backend, off, size)
+        return materialize_read(self.shell_file, self.manifest, self.zarr_mapping, self.backend, off, size,
+                               _chunk_cache=self.chunk_cache)
 
     async def release(self, fh):
         self._log("release", fh=fh)
@@ -165,6 +168,7 @@ def main(argv=None):
 
     operations = VirtualHDF5Filesystem(args.shell, args.manifest, args.zarr_map)
     fuse_options = set(pyfuse3.default_options)
+    fuse_options.add("allow_other")
     fuse_options.add("fsname=virtual_hdf5")
     fuse_options.add("ro")
     fuse_options.discard("default_permissions")
