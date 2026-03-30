@@ -1,6 +1,7 @@
 #!/root/miniconda3/envs/omezarr_to_ims/bin/python
 
 import json
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -69,6 +70,7 @@ class OmeZarrBackend:
     def __init__(self, store_path):
         self.store_path = store_path
         self.array = OmeZarrArray(store_path, verbose=False)
+        self._lock = threading.Lock()
         self.levels = []
         for level in range(self.array.ResolutionLevels):
             self.array.resolution_level = level
@@ -123,7 +125,6 @@ class OmeZarrBackend:
 
     def read_volume(self, level, t=0, c=0):
         entry = self.level_entry(level)
-        self.array.resolution_level = entry["level"]
         native_slices = []
         for axis_name, extent in zip(entry["axis_names"], entry["shape"]):
             if axis_name == "t":
@@ -132,7 +133,9 @@ class OmeZarrBackend:
                 native_slices.append(c)
             else:
                 native_slices.append(slice(0, extent))
-        data = np.asarray(self.array[tuple(native_slices)])
+        with self._lock:
+            self.array.resolution_level = entry["level"]
+            data = np.asarray(self.array[tuple(native_slices)])
         if data.ndim != 3:
             raise ValueError(f"Expected 3D ZYX data after TC extraction, got shape {data.shape}")
         return data
@@ -161,7 +164,6 @@ class OmeZarrBackend:
 
     def read_chunk(self, mapping_target, chunk_origin, chunk_shape, chunk_actual_shape):
         entry = self.level_entry(mapping_target)
-        self.array.resolution_level = entry["level"]
         native_slices = []
         target_t = mapping_timepoint(mapping_target)
         target_c = mapping_channel(mapping_target)
@@ -180,7 +182,9 @@ class OmeZarrBackend:
             start = int(chunk_origin[promoted_index])
             extent = int(chunk_actual_shape[promoted_index])
             native_slices.append(slice(start, start + extent))
-        chunk = np.asarray(self.array[tuple(native_slices)])
+        with self._lock:
+            self.array.resolution_level = entry["level"]
+            chunk = np.asarray(self.array[tuple(native_slices)])
         if chunk.ndim != 3:
             raise ValueError(f"Expected 3D chunk after TC selection, got shape {chunk.shape}")
         padded = np.zeros(tuple(chunk_shape), dtype=entry["dtype"])

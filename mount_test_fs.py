@@ -159,7 +159,10 @@ def main(argv=None):
 
     pyfuse3.init(operations, args.mountpoint, fuse_options)
     try:
-        trio.run(pyfuse3.main)
+        async def _fuse_main():
+            await pyfuse3.main(min_tasks=1, max_tasks=10)
+
+        trio.run(_fuse_main)
     except BaseException as exc:
         interrupted = isinstance(exc, KeyboardInterrupt)
         if not interrupted and isinstance(exc, BaseExceptionGroup):

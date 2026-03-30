@@ -2,6 +2,7 @@
 
 import argparse
 import errno
+import functools
 import os
 import stat
 import sys
@@ -123,8 +124,13 @@ class VirtualHDF5Filesystem(pyfuse3.Operations):
         self._log("read", fh=fh, offset=off, size=size)
         if fh != self.file_inode:
             raise pyfuse3.FUSEError(errno.ENOENT)
-        return materialize_read(self.shell_file, self.manifest, self.zarr_mapping, self.backend, off, size,
-                               _chunk_cache=self.chunk_cache)
+        return await trio.to_thread.run_sync(
+            functools.partial(
+                materialize_read, self.shell_file, self.manifest,
+                self.zarr_mapping, self.backend, off, size,
+                _chunk_cache=self.chunk_cache,
+            )
+        )
 
     async def release(self, fh):
         self._log("release", fh=fh)
@@ -178,7 +184,10 @@ def main(argv=None):
 
     pyfuse3.init(operations, args.mountpoint, fuse_options)
     try:
-        trio.run(pyfuse3.main)
+        async def _fuse_main():
+            await pyfuse3.main(min_tasks=1, max_tasks=10)
+
+        trio.run(_fuse_main)
     except BaseException as exc:
         interrupted = isinstance(exc, KeyboardInterrupt)
         if not interrupted and isinstance(exc, BaseExceptionGroup):
