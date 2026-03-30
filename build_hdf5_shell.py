@@ -12,6 +12,7 @@ from zarr_backend import OmeZarrBackend
 
 
 IMS_FORMAT_VERSION = "5.5.0"
+IMARIS_WRITER_VERSION = "10.2.0"
 
 
 def parse_shape(text):
@@ -160,6 +161,15 @@ def set_string_attr(h5obj, name, value):
     h5obj.attrs[name] = str(value)
 
 
+def set_imaris_string_attr(h5obj, name, value):
+    text = str(value)
+    h5obj.attrs.create(name, np.frombuffer(text.encode("ascii"), dtype="S1"))
+
+
+def set_imaris_uint32_attr(h5obj, name, value):
+    h5obj.attrs.create(name, np.asarray([value], dtype=np.uint32))
+
+
 def compute_integer_histogram(data):
     flat = np.asarray(data).reshape(-1)
     if flat.size == 0:
@@ -170,10 +180,32 @@ def compute_integer_histogram(data):
     return minimum, maximum, counts.astype(np.uint64)
 
 
+def compute_imaris_histograms(data):
+    flat = np.asarray(data).reshape(-1)
+    if flat.size == 0:
+        empty = np.zeros(256, dtype=np.uint64)
+        return 0, 0, empty, np.zeros(1024, dtype=np.uint64)
+
+    minimum = int(flat.min())
+    maximum = int(flat.max())
+    if minimum == maximum:
+        histogram_256 = np.zeros(256, dtype=np.uint64)
+        histogram_256[0] = flat.size
+        histogram_1024 = np.zeros(1024, dtype=np.uint64)
+        histogram_1024[0] = flat.size
+        return minimum, maximum, histogram_256, histogram_1024
+
+    value_range = (minimum, maximum)
+    histogram_256, _ = np.histogram(flat, bins=256, range=value_range)
+    histogram_1024, _ = np.histogram(flat, bins=1024, range=value_range)
+    return minimum, maximum, histogram_256.astype(np.uint64), histogram_1024.astype(np.uint64)
+
+
 def build_imaris_shell(output_path, store_path, dtype=None):
     backend = OmeZarrBackend(store_path)
     if dtype is None:
         dtype = backend.levels[0]["dtype"]
+    dtype = np.dtype(dtype)
     lowest_level = backend.levels[-1]["level"]
     max_t = max(spec["promoted_shape"][0] for spec in backend.levels)
     max_c = max(spec["promoted_shape"][1] for spec in backend.levels)
@@ -182,62 +214,72 @@ def build_imaris_shell(output_path, store_path, dtype=None):
     for t_index in range(max_t):
         for c_index in range(max_c):
             volume = backend.read_volume(lowest_level, t=t_index, c=c_index)
-            channel_histograms[(t_index, c_index)] = compute_integer_histogram(volume)
+            channel_histograms[(t_index, c_index)] = compute_imaris_histograms(volume)
 
     with h5py.File(output_path, "w", libver="latest") as h5file:
-        set_string_attr(h5file, "ImarisDataSet", "ImarisDataSet")
-        set_string_attr(h5file, "FormatVersion", IMS_FORMAT_VERSION)
+        set_imaris_string_attr(h5file, "DataSetDirectoryName", "DataSet")
+        set_imaris_string_attr(h5file, "DataSetInfoDirectoryName", "DataSetInfo")
+        set_imaris_string_attr(h5file, "ImarisDataSet", "ImarisDataSet")
+        set_imaris_string_attr(h5file, "ImarisVersion", IMS_FORMAT_VERSION)
+        set_imaris_uint32_attr(h5file, "NumberOfDataSets", 1)
+        set_imaris_string_attr(h5file, "ThumbnailDirectoryName", "Thumbnail")
 
         dataset_group = h5file.require_group("DataSet")
         dataset_info = h5file.require_group("DataSetInfo")
+        thumbnail_group = h5file.require_group("Thumbnail")
+        log_group = dataset_info.require_group("Log")
 
         info_imaris_dataset = dataset_info.require_group("ImarisDataSet")
-        set_string_attr(info_imaris_dataset, "Creator", "Imaris")
-        set_string_attr(info_imaris_dataset, "NumberOfImages", 1)
-        set_string_attr(info_imaris_dataset, "Version", IMS_FORMAT_VERSION)
+        set_imaris_string_attr(info_imaris_dataset, "Creator", "ImarisConvert")
+        set_imaris_string_attr(info_imaris_dataset, "NumberOfImages", 1)
+        set_imaris_string_attr(info_imaris_dataset, "Version", IMARIS_WRITER_VERSION)
 
         info_imaris = dataset_info.require_group("Imaris")
-        set_string_attr(info_imaris, "Filename", output_path.name)
-        set_string_attr(info_imaris, "ManufactorString", "Generic Imaris 3.x")
-        set_string_attr(info_imaris, "ManufactorType", "LSM")
-        set_string_attr(info_imaris, "ThumbnailMode", "thumbnailNone")
-        set_string_attr(info_imaris, "Version", IMS_FORMAT_VERSION)
+        set_imaris_string_attr(info_imaris, "Version", IMARIS_WRITER_VERSION)
 
         level0_shape = backend.levels[0]["promoted_shape"]
         image_group = dataset_info.require_group("Image")
-        set_string_attr(image_group, "Description", "Virtual Imaris dataset backed by OME-Zarr")
-        set_string_attr(image_group, "Name", output_path.name)
-        set_string_attr(image_group, "Unit", "um")
-        set_string_attr(image_group, "X", level0_shape[4])
-        set_string_attr(image_group, "Y", level0_shape[3])
-        set_string_attr(image_group, "Z", level0_shape[2])
-        set_string_attr(image_group, "Noc", max_c)
-        set_string_attr(image_group, "ExtMin0", 0.0)
-        set_string_attr(image_group, "ExtMin1", 0.0)
-        set_string_attr(image_group, "ExtMin2", 0.0)
-        set_string_attr(image_group, "ExtMax0", float(level0_shape[4]))
-        set_string_attr(image_group, "ExtMax1", float(level0_shape[3]))
-        set_string_attr(image_group, "ExtMax2", float(level0_shape[2]))
+        set_imaris_string_attr(image_group, "Description", "(description not specified)")
+        set_imaris_string_attr(image_group, "Name", "(name not specified)")
+        set_imaris_string_attr(image_group, "OriginalFormat", "OME-Zarr")
+        set_imaris_string_attr(image_group, "OriginalFormatFileIOVersion", "virtual-hdf5")
+        set_imaris_string_attr(image_group, "RecordingDate", "1970-01-01 00:00:00")
+        set_imaris_string_attr(image_group, "ResampleDimensionX", "true")
+        set_imaris_string_attr(image_group, "ResampleDimensionY", "true")
+        set_imaris_string_attr(image_group, "ResampleDimensionZ", "true")
+        set_imaris_string_attr(image_group, "Unit", "um")
+        set_imaris_string_attr(image_group, "X", level0_shape[4])
+        set_imaris_string_attr(image_group, "Y", level0_shape[3])
+        set_imaris_string_attr(image_group, "Z", level0_shape[2])
+        set_imaris_string_attr(image_group, "ExtMin0", "0.0000000000")
+        set_imaris_string_attr(image_group, "ExtMin1", "0.0000000000")
+        set_imaris_string_attr(image_group, "ExtMin2", "0.0000000000")
+        set_imaris_string_attr(image_group, "ExtMax0", f"{float(level0_shape[4]):.10f}")
+        set_imaris_string_attr(image_group, "ExtMax1", f"{float(level0_shape[3]):.10f}")
+        set_imaris_string_attr(image_group, "ExtMax2", f"{float(level0_shape[2]):.10f}")
 
         time_info = dataset_info.require_group("TimeInfo")
-        set_string_attr(time_info, "DataSetTimePoints", max_t)
-        set_string_attr(time_info, "FileTimePoints", max_t)
+        set_imaris_string_attr(time_info, "DatasetTimePoints", max_t)
+        set_imaris_string_attr(time_info, "FileTimePoints", max_t)
         for t_index in range(max_t):
-            set_string_attr(time_info, f"TimePoint{t_index + 1}", f"1970-01-01 00:00:{t_index:02d}.000")
+            set_imaris_string_attr(time_info, f"TimePoint{t_index + 1}", f"1970-01-01 00:00:{t_index:02d}")
+
+        set_imaris_string_attr(log_group, "Entries", 0)
+
+        thumbnail_group.create_dataset("Data", data=np.zeros((256, 1024), dtype=np.uint8), dtype=np.uint8)
 
         colors = [(1, 0, 0), (0, 1, 0), (0, 0, 1), (1, 1, 0), (1, 0, 1), (0, 1, 1)]
         for c_index in range(max_c):
             channel_group = dataset_info.require_group(f"Channel {c_index}")
-            hist_min, hist_max, _ = channel_histograms[(0, c_index)]
+            hist_min, hist_max, _, _ = channel_histograms[(0, c_index)]
             color = colors[c_index % len(colors)]
-            set_string_attr(channel_group, "Name", f"Channel {c_index}")
-            set_string_attr(channel_group, "Description", f"Channel {c_index}")
-            set_string_attr(channel_group, "ColorMode", "BaseColor")
-            set_string_attr(channel_group, "Color", f"{color[0]} {color[1]} {color[2]}")
-            set_string_attr(channel_group, "ColorOpacity", 1.0)
-            set_string_attr(channel_group, "ColorRange", f"{hist_min} {hist_max}")
-            set_string_attr(channel_group, "Min", hist_min)
-            set_string_attr(channel_group, "Max", hist_max)
+            set_imaris_string_attr(channel_group, "Name", c_index)
+            set_imaris_string_attr(channel_group, "Description", f"Channel {c_index}")
+            set_imaris_string_attr(channel_group, "ColorMode", "BaseColor")
+            set_imaris_string_attr(channel_group, "Color", f"{color[0]:.3f} {color[1]:.3f} {color[2]:.3f}")
+            set_imaris_string_attr(channel_group, "ColorOpacity", "1.000")
+            set_imaris_string_attr(channel_group, "ColorRange", f"{hist_min:.3f} {hist_max:.3f}")
+            set_imaris_string_attr(channel_group, "GammaCorrection", "1.000")
 
         dataset_summaries = []
         for level_spec in backend.levels:
@@ -249,12 +291,14 @@ def build_imaris_shell(output_path, store_path, dtype=None):
                 time_group = level_group.require_group(f"TimePoint {t_index}")
                 for c_index in range(level_spec["promoted_shape"][1]):
                     channel_group = time_group.require_group(f"Channel {c_index}")
-                    hist_min, hist_max, histogram = channel_histograms[(t_index, c_index)]
-                    set_string_attr(channel_group, "ImageSizeX", zyx_shape[2])
-                    set_string_attr(channel_group, "ImageSizeY", zyx_shape[1])
-                    set_string_attr(channel_group, "ImageSizeZ", zyx_shape[0])
-                    set_string_attr(channel_group, "HistogramMin", hist_min)
-                    set_string_attr(channel_group, "HistogramMax", hist_max)
+                    hist_min, hist_max, histogram_256, histogram_1024 = channel_histograms[(t_index, c_index)]
+                    set_imaris_string_attr(channel_group, "ImageSizeX", zyx_shape[2])
+                    set_imaris_string_attr(channel_group, "ImageSizeY", zyx_shape[1])
+                    set_imaris_string_attr(channel_group, "ImageSizeZ", zyx_shape[0])
+                    set_imaris_string_attr(channel_group, "HistogramMin", f"{hist_min:.3f}")
+                    set_imaris_string_attr(channel_group, "HistogramMax", f"{hist_max:.3f}")
+                    set_imaris_string_attr(channel_group, "HistogramMin1024", f"{hist_min:.3f}")
+                    set_imaris_string_attr(channel_group, "HistogramMax1024", f"{hist_max:.3f}")
 
                     data_dataset = create_chunked_dataset(channel_group, "Data", zyx_shape, zyx_chunks, dtype)
                     data_dataset.attrs["virtual_shell"] = True
@@ -264,7 +308,8 @@ def build_imaris_shell(output_path, store_path, dtype=None):
                     data_dataset.attrs["source_t"] = t_index
                     data_dataset.attrs["source_c"] = c_index
 
-                    channel_group.create_dataset("Histogram", data=histogram, dtype=np.uint64)
+                    channel_group.create_dataset("Histogram", data=histogram_256, dtype=np.uint64)
+                    channel_group.create_dataset("Histogram1024", data=histogram_1024, dtype=np.uint64)
                     dataset_summaries.append(
                         {
                             "path": data_dataset.name,
