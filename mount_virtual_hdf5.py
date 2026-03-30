@@ -32,7 +32,7 @@ class VirtualHDF5Filesystem(pyfuse3.Operations):
             self.backend.validate_shell_dataset(
                 dataset["path"],
                 target,
-                dataset["shape"],
+                dataset.get("logical_shape", dataset["shape"]),
                 dataset["chunks"],
                 dataset["dtype"],
             )

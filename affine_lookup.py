@@ -45,8 +45,9 @@ def ravel_index(indexes, shape):
 
 
 def chunk_actual_shape(dataset, chunk_grid_index):
+    logical_shape = dataset.get("logical_shape", dataset["shape"])
     actual = []
-    for dim, chunk, grid_index in zip(dataset["shape"], dataset["chunks"], chunk_grid_index):
+    for dim, chunk, grid_index in zip(logical_shape, dataset["chunks"], chunk_grid_index):
         start = grid_index * chunk
         actual.append(min(chunk, dim - start))
     return tuple(actual)
@@ -77,13 +78,15 @@ def offset_to_chunk_location(manifest, file_offset):
     slot_element_index = intra_chunk_byte_offset // dataset["itemsize"]
     voxel_index_in_chunk = unravel_index(slot_element_index, dataset["chunks"])
     voxel_index = tuple(origin + local for origin, local in zip(chunk_origin, voxel_index_in_chunk))
-    is_padding = any(index >= dim for index, dim in zip(voxel_index, dataset["shape"]))
+    logical_shape = tuple(dataset.get("logical_shape", dataset["shape"]))
+    is_padding = any(index >= dim for index, dim in zip(voxel_index, logical_shape))
     logical_chunk_bytes = product(actual_shape) * dataset["itemsize"]
 
     return {
         "dataset_path": dataset["path"],
         "axis_order": dataset["axis_order"],
         "shape": tuple(dataset["shape"]),
+        "logical_shape": logical_shape,
         "chunks": tuple(dataset["chunks"]),
         "grid_shape": tuple(dataset["grid_shape"]),
         "dtype": dataset["dtype"],

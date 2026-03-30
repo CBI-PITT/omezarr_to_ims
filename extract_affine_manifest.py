@@ -69,6 +69,20 @@ def dataset_manifest_entry(dataset_path, dataset):
     chunks = tuple(int(value) for value in dataset.chunks)
     grid_shape = tuple(ceil_div(dim, chunk) for dim, chunk in zip(shape, chunks))
     dtype = dataset.dtype
+    logical_shape = None
+    if "logical_shape" in dataset.attrs:
+        logical_shape = tuple(int(value) for value in dataset.attrs["logical_shape"])
+    elif dataset.attrs.get("source_layout") == "imaris":
+        image_size_keys = ("ImageSizeZ", "ImageSizeY", "ImageSizeX")
+        parent_attrs = dataset.parent.attrs
+        if all(key in parent_attrs for key in image_size_keys):
+            logical_shape = []
+            for key in image_size_keys:
+                value = parent_attrs[key]
+                if getattr(value, "dtype", None) is not None and str(value.dtype) == "|S1":
+                    value = b"".join(value.tolist()).decode("ascii")
+                logical_shape.append(int(float(value)))
+            logical_shape = tuple(logical_shape)
 
     first_origin = tuple(0 for _ in shape)
     first_info = dataset.id.get_chunk_info_by_coord(first_origin)
@@ -113,6 +127,8 @@ def dataset_manifest_entry(dataset_path, dataset):
         "affine_verified_on_samples": affine_ok,
         "verification_samples": samples,
     }
+    if logical_shape is not None:
+        entry["logical_shape"] = list(logical_shape)
     for attr_name in ("source_layout", "source_level", "source_t", "source_c"):
         if attr_name in dataset.attrs:
             value = dataset.attrs[attr_name]
