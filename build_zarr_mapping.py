@@ -2,7 +2,13 @@
 
 import argparse
 import json
+import re
 from pathlib import Path
+
+
+IMARIS_DATASET_PATH = re.compile(
+    r"^/DataSet/ResolutionLevel (?P<level>\d+)/TimePoint (?P<t>\d+)/Channel (?P<c>\d+)/Data$"
+)
 
 
 def parse_args():
@@ -38,6 +44,17 @@ def parse_explicit_mappings(values):
     return mapping
 
 
+def infer_mapping_target(dataset_path, index):
+    match = IMARIS_DATASET_PATH.match(dataset_path)
+    if match is not None:
+        return {
+            "level": int(match.group("level")),
+            "t": int(match.group("t")),
+            "c": int(match.group("c")),
+        }
+    return {"level": index, "t": 0, "c": 0}
+
+
 def build_mapping(affine_manifest, store, explicit):
     dataset_paths = [dataset["path"] for dataset in affine_manifest["datasets"]]
     dataset_map = {}
@@ -47,10 +64,11 @@ def build_mapping(affine_manifest, store, explicit):
             dataset_map[dataset_path] = explicit[dataset_path]
             continue
         dataset = dataset_entries[dataset_path]
+        inferred = infer_mapping_target(dataset_path, index)
         dataset_map[dataset_path] = {
-            "level": int(dataset.get("source_level", index)),
-            "t": int(dataset.get("source_t", 0)),
-            "c": int(dataset.get("source_c", 0)),
+            "level": int(dataset.get("source_level", inferred["level"])),
+            "t": int(dataset.get("source_t", inferred["t"])),
+            "c": int(dataset.get("source_c", inferred["c"])),
         }
 
     unknown = sorted(set(explicit) - set(dataset_paths))

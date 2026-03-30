@@ -13,6 +13,9 @@ from zarr_backend import OmeZarrBackend
 
 IMS_FORMAT_VERSION = "5.5.0"
 IMARIS_WRITER_VERSION = "10.2.0"
+IMARIS_CHUNK_Z = 32
+IMARIS_COARSE_CHUNK_Z = 16
+IMARIS_CHUNK_YX = 128
 
 
 def parse_shape(text):
@@ -205,20 +208,30 @@ def pad_shape_to_chunks(shape, chunks):
     return tuple(((dim + chunk - 1) // chunk) * chunk for dim, chunk in zip(shape, chunks))
 
 
+def select_imaris_chunks(logical_shape, level, level_count):
+    z_chunk = IMARIS_COARSE_CHUNK_Z if level == level_count - 1 else IMARIS_CHUNK_Z
+    return (z_chunk, IMARIS_CHUNK_YX, IMARIS_CHUNK_YX)
+
+
+def build_imaris_channel_histograms(backend, max_t, max_c):
+    histograms = {}
+    for level_spec in backend.levels:
+        level = level_spec["level"]
+        for t_index in range(max_t):
+            for c_index in range(max_c):
+                volume = backend.read_volume(level, t=t_index, c=c_index)
+                histograms[(level, t_index, c_index)] = compute_imaris_histograms(volume)
+    return histograms
+
+
 def build_imaris_shell(output_path, store_path, dtype=None):
     backend = OmeZarrBackend(store_path)
     if dtype is None:
         dtype = backend.levels[0]["dtype"]
     dtype = np.dtype(dtype)
-    lowest_level = backend.levels[-1]["level"]
     max_t = max(spec["promoted_shape"][0] for spec in backend.levels)
     max_c = max(spec["promoted_shape"][1] for spec in backend.levels)
-
-    channel_histograms = {}
-    for t_index in range(max_t):
-        for c_index in range(max_c):
-            volume = backend.read_volume(lowest_level, t=t_index, c=c_index)
-            channel_histograms[(t_index, c_index)] = compute_imaris_histograms(volume)
+    channel_histograms = build_imaris_channel_histograms(backend, max_t, max_c)
 
     with h5py.File(output_path, "w", libver="latest") as h5file:
         set_imaris_string_attr(h5file, "DataSetDirectoryName", "DataSet")
@@ -275,7 +288,7 @@ def build_imaris_shell(output_path, store_path, dtype=None):
         colors = [(1, 0, 0), (0, 1, 0), (0, 0, 1), (1, 1, 0), (1, 0, 1), (0, 1, 1)]
         for c_index in range(max_c):
             channel_group = dataset_info.require_group(f"Channel {c_index}")
-            hist_min, hist_max, _, _ = channel_histograms[(0, c_index)]
+            hist_min, hist_max, _, _ = channel_histograms[(0, 0, c_index)]
             color = colors[c_index % len(colors)]
             set_imaris_string_attr(channel_group, "Name", c_index)
             set_imaris_string_attr(channel_group, "Description", f"Channel {c_index}")
@@ -286,17 +299,18 @@ def build_imaris_shell(output_path, store_path, dtype=None):
             set_imaris_string_attr(channel_group, "GammaCorrection", "1.000")
 
         dataset_summaries = []
+        level_count = len(backend.levels)
         for level_spec in backend.levels:
             level = level_spec["level"]
             logical_zyx_shape = level_spec["promoted_shape"][2:]
-            zyx_chunks = level_spec["promoted_chunks"][2:]
+            zyx_chunks = select_imaris_chunks(logical_zyx_shape, level, level_count)
             stored_zyx_shape = pad_shape_to_chunks(logical_zyx_shape, zyx_chunks)
             level_group = dataset_group.require_group(f"ResolutionLevel {level}")
             for t_index in range(level_spec["promoted_shape"][0]):
                 time_group = level_group.require_group(f"TimePoint {t_index}")
                 for c_index in range(level_spec["promoted_shape"][1]):
                     channel_group = time_group.require_group(f"Channel {c_index}")
-                    hist_min, hist_max, histogram_256, histogram_1024 = channel_histograms[(t_index, c_index)]
+                    hist_min, hist_max, histogram_256, histogram_1024 = channel_histograms[(level, t_index, c_index)]
                     set_imaris_string_attr(channel_group, "ImageSizeX", logical_zyx_shape[2])
                     set_imaris_string_attr(channel_group, "ImageSizeY", logical_zyx_shape[1])
                     set_imaris_string_attr(channel_group, "ImageSizeZ", logical_zyx_shape[0])
@@ -306,14 +320,6 @@ def build_imaris_shell(output_path, store_path, dtype=None):
                     set_imaris_string_attr(channel_group, "HistogramMax1024", f"{hist_max:.3f}")
 
                     data_dataset = create_chunked_dataset(channel_group, "Data", stored_zyx_shape, zyx_chunks, dtype)
-                    data_dataset.attrs["virtual_shell"] = True
-                    data_dataset.attrs["axis_order"] = "ZYX"
-                    data_dataset.attrs["logical_shape"] = np.asarray(logical_zyx_shape, dtype=np.int64)
-                    data_dataset.attrs["source_layout"] = "imaris"
-                    data_dataset.attrs["source_level"] = level
-                    data_dataset.attrs["source_t"] = t_index
-                    data_dataset.attrs["source_c"] = c_index
-
                     channel_group.create_dataset("Histogram", data=histogram_256, dtype=np.uint64)
                     channel_group.create_dataset("Histogram1024", data=histogram_1024, dtype=np.uint64)
                     dataset_summaries.append(

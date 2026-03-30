@@ -2,11 +2,29 @@
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 import h5py
 
 from affine_lookup import AXIS_ORDER, ceil_div, product
+
+
+IMARIS_DATASET_PATH = re.compile(
+    r"^/DataSet/ResolutionLevel (?P<level>\d+)/TimePoint (?P<t>\d+)/Channel (?P<c>\d+)/Data$"
+)
+
+
+def parse_imaris_dataset_path(dataset_path):
+    match = IMARIS_DATASET_PATH.match(dataset_path)
+    if match is None:
+        return None
+    return {
+        "source_layout": "imaris",
+        "source_level": int(match.group("level")),
+        "source_t": int(match.group("t")),
+        "source_c": int(match.group("c")),
+    }
 
 
 def parse_args():
@@ -69,10 +87,11 @@ def dataset_manifest_entry(dataset_path, dataset):
     chunks = tuple(int(value) for value in dataset.chunks)
     grid_shape = tuple(ceil_div(dim, chunk) for dim, chunk in zip(shape, chunks))
     dtype = dataset.dtype
+    source_info = parse_imaris_dataset_path(dataset_path)
     logical_shape = None
     if "logical_shape" in dataset.attrs:
         logical_shape = tuple(int(value) for value in dataset.attrs["logical_shape"])
-    elif dataset.attrs.get("source_layout") == "imaris":
+    elif source_info is not None:
         image_size_keys = ("ImageSizeZ", "ImageSizeY", "ImageSizeX")
         parent_attrs = dataset.parent.attrs
         if all(key in parent_attrs for key in image_size_keys):
@@ -113,7 +132,7 @@ def dataset_manifest_entry(dataset_path, dataset):
 
     entry = {
         "path": dataset_path,
-        "axis_order": dataset.attrs.get("axis_order", AXIS_ORDER),
+        "axis_order": "ZYX" if source_info is not None and len(shape) == 3 else dataset.attrs.get("axis_order", AXIS_ORDER),
         "shape": list(shape),
         "chunks": list(chunks),
         "grid_shape": list(grid_shape),
@@ -129,6 +148,8 @@ def dataset_manifest_entry(dataset_path, dataset):
     }
     if logical_shape is not None:
         entry["logical_shape"] = list(logical_shape)
+    if source_info is not None:
+        entry.update(source_info)
     for attr_name in ("source_layout", "source_level", "source_t", "source_c"):
         if attr_name in dataset.attrs:
             value = dataset.attrs[attr_name]
