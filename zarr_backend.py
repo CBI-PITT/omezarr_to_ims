@@ -157,9 +157,11 @@ class OmeZarrBackend:
                 raise ValueError(
                     f"Chunk mismatch for {dataset_path}: shell {tuple(shell_chunks)} vs zarr {expected_chunks}"
                 )
-        if np.dtype(shell_dtype) != entry["dtype"]:
+        shell_dt = np.dtype(shell_dtype)
+        zarr_dt = entry["dtype"]
+        if shell_dt.kind != zarr_dt.kind or shell_dt.itemsize != zarr_dt.itemsize:
             raise ValueError(
-                f"Dtype mismatch for {dataset_path}: shell {np.dtype(shell_dtype)} vs zarr {entry['dtype']}"
+                f"Dtype mismatch for {dataset_path}: shell {shell_dt} vs zarr {zarr_dt}"
             )
 
     def read_chunk(self, mapping_target, chunk_origin, chunk_shape, chunk_actual_shape):
