@@ -41,18 +41,31 @@ def materialize_read(shell_file, manifest, zarr_mapping, backend, offset, length
     parts = []
     for segment in resolve_read_segments(manifest, offset, length):
         if segment["kind"] == "metadata":
+            print(f"  metadata offset={segment['file_offset']} len={segment['length']}", flush=True)
             parts.append(os.pread(shell_file.fileno(), segment["length"], segment["file_offset"]))
             continue
 
+        ds = segment["dataset_path"]
+        grid_idx = segment["chunk_grid_index"]
+        origin = segment["chunk_origin"]
+        cached = (_chunk_cache.cache_info().hits if hasattr(_chunk_cache, 'cache_info') else None)
         chunk_bytes = _chunk_cache(
-            segment["dataset_path"],
+            ds,
             tuple(segment["chunk_origin"]),
             tuple(segment["chunk_shape"]),
             tuple(segment["chunk_actual_shape"]),
             segment["dtype"],
         )
+        if cached is not None:
+            hit = _chunk_cache.cache_info().hits > cached
+        else:
+            hit = None
+        hit_label = " (cached)" if hit else " (fetched)" if hit is False else ""
         start = segment["intra_chunk_byte_offset"]
         end = start + segment["length"]
+        print(f"  data {ds} chunk={grid_idx} origin={origin} "
+              f"intra_offset={start} len={segment['length']}{hit_label}",
+              flush=True)
         parts.append(chunk_bytes[start:end])
 
     return b"".join(parts)
